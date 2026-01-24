@@ -6,11 +6,11 @@ use futures::{
     future::{join_all, try_join_all},
     pin_mut, try_join,
 };
-use log::{info, warn};
+use log::{error, info, warn};
 use matrix_sdk::{
     Client,
     config::SyncSettings,
-    ruma::{OwnedRoomId, OwnedServerName, OwnedUserId},
+    ruma::{OwnedRoomId, OwnedServerName, OwnedUserId, events::room::power_levels::UserPowerLevel},
 };
 
 /// Fast migration of one matrix account to another
@@ -70,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
     if args.from_user_password.is_none() {
         info!("No password provided, trying SSO authtentication.");
         from_c
+            .matrix_auth()
             .login_sso(|sso_url| async move {
                 info!("Open this URL in a web browser {:}", sso_url);
                 Ok(())
@@ -79,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
             .await?;
     } else {
         from_c
+            .matrix_auth()
             .login_username(args.from_user, &args.from_user_password.unwrap())
             .send()
             .await?;
@@ -98,15 +100,17 @@ async fn main() -> anyhow::Result<()> {
 
     if args.to_user_password.is_none() {
         info!("No password provided, trying SSO authtentication.");
-        to_c.login_sso(|sso_url| async move {
-            info!("Open this URL in a web browser {:}", sso_url);
-            Ok(())
-        })
-        .initial_device_display_name("matrix-migrate")
-        .send()
-        .await?;
+        to_c.matrix_auth()
+            .login_sso(|sso_url| async move {
+                info!("Open this URL in a web browser {:}", sso_url);
+                Ok(())
+            })
+            .initial_device_display_name("matrix-migrate")
+            .send()
+            .await?;
     } else {
-        to_c.login_username(args.to_user, &args.to_user_password.unwrap())
+        to_c.matrix_auth()
+            .login_username(args.to_user, &args.to_user_password.unwrap())
             .send()
             .await?;
     }
@@ -232,7 +236,7 @@ async fn ensure_power_levels(
         let user_id = new_username.clone();
         async move {
             tokio::time::sleep(Duration::from_secs(counter.saturating_div(2) as u64)).await;
-            let Some(joined) = from_c.get_joined_room(&room_id) else {
+            let Some(joined) = from_c.get_room(&room_id) else {
                 return anyhow::Ok(());
             };
 
@@ -253,13 +257,24 @@ async fn ensure_power_levels(
                 return anyhow::Ok(());
             }
 
-            info!("Trying to adjust power_level of {user_id} in {room_id} to {my_power_level}.");
+            info!("Trying to adjust power_level of {user_id} in {room_id} to {my_power_level:?}.");
 
-            if let Err(e) = joined
-                .update_power_levels(vec![(&user_id.clone(), my_power_level.try_into().unwrap())])
-                .await
-            {
-                warn!("Couldn't update power levels for {user_id} in {room_id}: {e}");
+            match my_power_level {
+                UserPowerLevel::Infinite => {
+                    warn!("Couldn't update power levels for {user_id} in {room_id} to infinity");
+                }
+                UserPowerLevel::Int(my_power_level) => {
+                    if let Err(e) = joined
+                        .update_power_levels(vec![(
+                            &user_id.clone(),
+                            my_power_level.try_into().unwrap(),
+                        )])
+                        .await
+                    {
+                        warn!("Couldn't update power levels for {user_id} in {room_id}: {e}");
+                    }
+                }
+                _ => error!("Unknown power level"),
             }
 
             Ok(())
@@ -275,12 +290,12 @@ async fn accept_invites(
 ) -> anyhow::Result<Vec<OwnedRoomId>> {
     let mut pending = Vec::new();
     for room_id in rooms {
-        let Some(invited) = to_c.get_invited_room(&room_id) else {
-            if to_c.get_joined_room(room_id).is_some() {
+        let Some(invited) = to_c.get_room(&room_id) else {
+            if to_c.get_room(room_id).is_some() {
                 // already existing, skipping
                 continue;
             }
-            pending.push(room_id.clone().to_owned());
+            pending.push((*room_id).to_owned());
             continue;
         };
         info!(
@@ -288,7 +303,7 @@ async fn accept_invites(
             invited.display_name().await?,
             invited.room_id()
         );
-        invited.accept_invitation().await?;
+        invited.join().await?;
     }
 
     Ok(pending)
@@ -304,9 +319,9 @@ async fn send_invites(
         let user_id = user_id.clone();
         async move {
             tokio::time::sleep(Duration::from_secs(counter.saturating_div(2) as u64)).await;
-            let Some(joined) = from_c.get_joined_room(&room_id) else {
+            let Some(joined) = from_c.get_room(&room_id) else {
                 warn!("Can't invite user to {:}: not a member myself", room_id);
-                return Some(room_id.clone().to_owned());
+                return Some((*room_id).to_owned());
             };
             info!(
                 "Inviting to {room_id} ({})",
@@ -314,7 +329,7 @@ async fn send_invites(
             );
             if let Err(e) = joined.invite_user_by_id(&user_id).await {
                 warn!("Inviting to {:} failed: {e}", room_id);
-                return Some(room_id.clone().to_owned());
+                return Some((*room_id).to_owned());
             }
             None
         }
