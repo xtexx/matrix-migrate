@@ -48,6 +48,9 @@ struct Args {
     /// Custom logging info
     #[arg(long, env = "RUST_LOG", default_value = "matrix_migrate=info")]
     log: String,
+
+    #[arg(long, default_value = "false")]
+    leave_rooms: bool,
 }
 
 #[tokio::main]
@@ -173,6 +176,13 @@ async fn main() -> anyhow::Result<()> {
         to_invite.len()
     );
 
+    if args.leave_rooms {
+        for room_id in &already_invited {
+            info!("Leaving {room_id}");
+            to_c.get_room(&room_id).unwrap().leave().await?;
+        }
+    }
+
     let to_user = to_c.user_id().unwrap().to_owned();
     let to_accept: Vec<&OwnedRoomId> = invites_to_accept.iter().collect();
     let c_accept = to_c.clone();
@@ -186,7 +196,8 @@ async fn main() -> anyhow::Result<()> {
     let mut all_failed_invites: Vec<OwnedRoomId> = vec![];
 
     for to_invite_chunk in to_invite.chunks(5) {
-        let failed_invites = send_invites(&inviter_c, to_invite_chunk, to_user.clone()).await?;
+        let failed_invites =
+            send_invites(&inviter_c, &c_accept, to_invite_chunk, to_user.clone()).await?;
         ensure_power_levels(&inviter_c, to_user.clone(), to_invite_chunk).await?;
         let (mut invites_awaiting, failed_invites) = (
             to_invite_chunk
@@ -276,14 +287,13 @@ async fn ensure_power_levels(
     Ok(())
 }
 
-async fn accept_invites<'a>(to_c: &Client, rooms: &[&'a OwnedRoomId]) -> anyhow::Result<Vec<&'a OwnedRoomId>> {
+async fn accept_invites<'a>(
+    to_c: &Client,
+    rooms: &[&'a OwnedRoomId],
+) -> anyhow::Result<Vec<&'a OwnedRoomId>> {
     let mut pending = Vec::new();
     for room_id in rooms {
         let Some(invited) = to_c.get_room(room_id) else {
-            if to_c.get_room(room_id).is_some() {
-                // already existing, skipping
-                continue;
-            }
             pending.push(*room_id);
             continue;
         };
@@ -300,6 +310,7 @@ async fn accept_invites<'a>(to_c: &Client, rooms: &[&'a OwnedRoomId]) -> anyhow:
 
 async fn send_invites(
     from_c: &Client,
+    to_c: &Client,
     rooms: &[&OwnedRoomId],
     user_id: OwnedUserId,
 ) -> anyhow::Result<Vec<OwnedRoomId>> {
@@ -312,12 +323,29 @@ async fn send_invites(
                 warn!("Can't invite user to {:}: not a member myself", room_id);
                 return Some((*room_id).to_owned());
             };
-            info!(
-                "Inviting to {room_id} ({})",
-                joined.display_name().await.unwrap()
-            );
+            let disp_name = joined.display_name().await.unwrap();
+            let disp_name_str = disp_name.to_string().to_lowercase();
+            if disp_name_str.contains("deprecated")
+                || disp_name_str.contains("old")
+                || disp_name_str.contains("upgraded")
+                || disp_name_str.contains("moved")
+            {
+                info!("Skipping inviting to {room_id} ({disp_name})");
+                return None;
+            }
+            info!("Inviting to {room_id} ({disp_name})");
             if let Err(e) = joined.invite_user_by_id(&user_id).await {
                 warn!("Inviting to {:} failed: {e}", room_id);
+                if let Some(canonical_alias) = joined.canonical_alias() {
+                    if let Err(e) = to_c
+                        .join_room_by_id_or_alias((&*canonical_alias).into(), &[])
+                        .await
+                    {
+                        warn!("Joining {canonical_alias} failed: {e}");
+                    } else {
+                        return None;
+                    }
+                }
                 return Some((*room_id).to_owned());
             }
             None
