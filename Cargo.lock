@@ -193,6 +193,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-once-cell"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1921,14 +1927,14 @@ dependencies = [
 [[package]]
 name = "matrix-sdk"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b33f9bc45edd7f8e25161521fdd30654da5c55e6749be6afa1aa9d6cf838ace0"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk#38521296125ae939be39ffaf2e674f33a3db989e"
 dependencies = [
  "anyhow",
  "anymap2",
  "aquamarine",
  "as_variant",
  "async-channel",
+ "async-once-cell",
  "async-stream",
  "async-trait",
  "axum",
@@ -1981,8 +1987,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-base"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70f404a390ff98a73c426b1496b169be60ce6a93723a9a664e579d978a84c5e4"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk#38521296125ae939be39ffaf2e674f33a3db989e"
 dependencies = [
  "as_variant",
  "async-trait",
@@ -2009,8 +2014,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-common"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54fae2bdfc3d760d21a84d6d2036b5db5c48d9a3dee3794119e3fb9c4cc4ccc5"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk#38521296125ae939be39ffaf2e674f33a3db989e"
 dependencies = [
  "eyeball-im",
  "futures-core",
@@ -2033,8 +2037,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-crypto"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "304fc576810a9618bb831c4ad6403c758ec424f677668a49a196e3cde4b8f99f"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk#38521296125ae939be39ffaf2e674f33a3db989e"
 dependencies = [
  "aes",
  "aquamarine",
@@ -2074,8 +2077,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-indexeddb"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b6096084cc8d339c03e269ca25534d0f1e88d0097c35a215eb8c311797ec3e9"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk#38521296125ae939be39ffaf2e674f33a3db989e"
 dependencies = [
  "async-trait",
  "base64",
@@ -2106,8 +2108,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-sqlite"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4325742fc06b7f75c80eec39e8fb32b06ea4b09b7aa1d432b67b01d08fbacc28"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk#38521296125ae939be39ffaf2e674f33a3db989e"
 dependencies = [
  "as_variant",
  "async-trait",
@@ -2134,8 +2135,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-store-encryption"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "162a93e83114d5cef25c0ebaea72aa01b9f233df6ec4a2af45f175d01ec26323"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk#38521296125ae939be39ffaf2e674f33a3db989e"
 dependencies = [
  "base64",
  "blake3",
@@ -2811,8 +2811,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9f620a2116d0d3082f9256e61dcdf67f2ec266d3f6bb9d2f9c8a20ec5a1fabb"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "assign",
  "js_int",
@@ -2828,8 +2827,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbc977d1a91ea15dcf896cbd7005ed4a253784468833638998109ffceaee53e7"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "as_variant",
  "assign",
@@ -2852,8 +2850,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "597a01993f22d291320b7c9267675e7395775e95269ff526e2c8c3ed5e13175b"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "as_variant",
  "base64",
@@ -2886,8 +2883,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.32.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dbdeccb62cb4ffe3282325de8ba28cbc0fdce7c78a3f11b7241fbfdb9cb9907"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -2911,8 +2907,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb45c15badbf4299c6113a6b90df3e7cb64edbe756bbd8e0224144b56b38305"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "headers",
  "http",
@@ -2931,8 +2926,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a6dcd6e9823e177d15460d3cd3a413f38a2beea381f26aca1001c05cd6954ff"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -2943,8 +2937,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9c6b5643060beec0fc9d7acfb41d2c5d91e1591db440ff62361d178e77c35fe"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "js_int",
  "thiserror 2.0.18",
@@ -2953,8 +2946,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a0753312ad577ac462de1742bf2e326b6ba9856ff6f13343aeb17d423fd5426"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "as_variant",
  "cfg-if",
@@ -2970,8 +2962,7 @@ dependencies = [
 [[package]]
 name = "ruma-signatures"
 version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "146ace2cd59b60ec80d3e801a84e7e6a91e3e01d18a9f5d896ea7ca16a6b8e08"
+source = "git+https://github.com/ruma/ruma?rev=a5e8208d76d5fd7f82b04b7c86f877651d228b9a#a5e8208d76d5fd7f82b04b7c86f877651d228b9a"
 dependencies = [
  "base64",
  "ed25519-dalek",
