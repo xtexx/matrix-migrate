@@ -8,7 +8,7 @@ use futures::{
 };
 use log::{error, info, warn};
 use matrix_sdk::{
-    Client,
+    Client, RoomState,
     config::SyncSettings,
     ruma::{OwnedRoomId, OwnedServerName, OwnedUserId, events::room::power_levels::UserPowerLevel},
 };
@@ -198,7 +198,7 @@ async fn main() -> anyhow::Result<()> {
     for to_invite_chunk in to_invite.chunks(5) {
         let failed_invites =
             send_invites(&inviter_c, &c_accept, to_invite_chunk, to_user.clone()).await?;
-        ensure_power_levels(&inviter_c, to_user.clone(), to_invite_chunk).await?;
+
         let (mut invites_awaiting, failed_invites) = (
             to_invite_chunk
                 .into_iter()
@@ -214,6 +214,8 @@ async fn main() -> anyhow::Result<()> {
             to_sync_stream.next().await.expect("Sync stream broke")?;
             invites_awaiting = accept_invites(&to_c, &invites_awaiting.clone()).await?;
         }
+
+        ensure_power_levels(&inviter_c, to_user.clone(), to_invite_chunk).await?;
     }
 
     if !all_failed_invites.is_empty() {
@@ -236,12 +238,11 @@ async fn ensure_power_levels(
     new_username: OwnedUserId,
     rooms: &[&OwnedRoomId],
 ) -> anyhow::Result<()> {
-    try_join_all(rooms.iter().enumerate().map(|(counter, room_id)| {
+    try_join_all(rooms.iter().map(|room_id| {
         let from_c = from_c.clone();
         let self_id = from_c.user_id().unwrap().to_owned();
         let user_id = new_username.clone();
         async move {
-            tokio::time::sleep(Duration::from_secs(counter.saturating_div(2) as u64)).await;
             let Some(joined) = from_c.get_room(room_id) else {
                 return anyhow::Ok(());
             };
@@ -297,6 +298,9 @@ async fn accept_invites<'a>(
             pending.push(*room_id);
             continue;
         };
+        if !matches!(invited.state(), RoomState::Invited | RoomState::Left) {
+            continue;
+        }
         info!(
             "Accepting invite for {}({})",
             invited.display_name().await?,
@@ -343,6 +347,7 @@ async fn send_invites(
                     {
                         warn!("Joining {canonical_alias} failed: {e}");
                     } else {
+                        info!("Joined {canonical_alias} ({disp_name})");
                         return None;
                     }
                 }
