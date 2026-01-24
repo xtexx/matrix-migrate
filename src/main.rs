@@ -174,46 +174,41 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let to_user = to_c.user_id().unwrap().to_owned();
-    let to_accept = invites_to_accept.iter().collect();
+    let to_accept: Vec<&OwnedRoomId> = invites_to_accept.iter().collect();
     let c_accept = to_c.clone();
     let ensure_user = to_user.clone();
     let ensure_c = from_c.clone();
     let inviter_c = from_c.clone();
 
-    let (_, not_yet_accepted, (remaining_invites, failed_invites)) = try_join!(
-        async move { ensure_power_levels(&ensure_c, ensure_user, &already_invited).await },
-        async move { accept_invites(&c_accept, &to_accept).await },
-        async move {
-            let to_invite = to_invite.clone();
-            let failed_invites = send_invites(&inviter_c, &to_invite, to_user.clone()).await?;
-            ensure_power_levels(&inviter_c, to_user.clone(), &to_invite).await?;
-            Ok((
-                to_invite
-                    .into_iter()
-                    .map(ToOwned::to_owned)
-                    .filter(|r| !failed_invites.contains(r))
-                    .collect::<Vec<_>>(),
-                failed_invites,
-            ))
-        },
-    )?;
+    ensure_power_levels(&ensure_c, ensure_user, &already_invited).await?;
+    accept_invites(&c_accept, &to_accept).await?;
 
-    let mut invites_awaiting = not_yet_accepted
-        .into_iter()
-        .chain(remaining_invites.into_iter())
-        .collect::<Vec<_>>();
+    let mut all_failed_invites: Vec<OwnedRoomId> = vec![];
 
-    info!("First invitation set done.");
-    while !invites_awaiting.is_empty() {
-        info!("Still {} rooms to go. Syncing up", invites_awaiting.len());
-        to_sync_stream.next().await.expect("Sync stream broke")?;
-        invites_awaiting = accept_invites(&to_c, &invites_awaiting.iter().collect()).await?;
+    for to_invite_chunk in to_invite.chunks(5) {
+        let failed_invites = send_invites(&inviter_c, to_invite_chunk, to_user.clone()).await?;
+        ensure_power_levels(&inviter_c, to_user.clone(), to_invite_chunk).await?;
+        let (mut invites_awaiting, failed_invites) = (
+            to_invite_chunk
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .filter(|r| !failed_invites.contains(r))
+                .collect::<Vec<_>>(),
+            failed_invites,
+        );
+        all_failed_invites.extend(failed_invites);
+
+        while !invites_awaiting.is_empty() {
+            info!("Still {} rooms to go. Syncing up", invites_awaiting.len());
+            to_sync_stream.next().await.expect("Sync stream broke")?;
+            invites_awaiting = accept_invites(&to_c, &invites_awaiting.clone()).await?;
+        }
     }
 
-    if !failed_invites.is_empty() {
+    if !all_failed_invites.is_empty() {
         warn!(
             "Failed to invite to {:?}. See logs above for the reasons why",
-            failed_invites
+            all_failed_invites
         );
     }
 
@@ -228,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
 async fn ensure_power_levels(
     from_c: &Client,
     new_username: OwnedUserId,
-    rooms: &Vec<&OwnedRoomId>,
+    rooms: &[&OwnedRoomId],
 ) -> anyhow::Result<()> {
     try_join_all(rooms.iter().enumerate().map(|(counter, room_id)| {
         let from_c = from_c.clone();
@@ -281,10 +276,7 @@ async fn ensure_power_levels(
     Ok(())
 }
 
-async fn accept_invites(
-    to_c: &Client,
-    rooms: &Vec<&OwnedRoomId>,
-) -> anyhow::Result<Vec<OwnedRoomId>> {
+async fn accept_invites<'a>(to_c: &Client, rooms: &[&'a OwnedRoomId]) -> anyhow::Result<Vec<&'a OwnedRoomId>> {
     let mut pending = Vec::new();
     for room_id in rooms {
         let Some(invited) = to_c.get_room(room_id) else {
@@ -292,7 +284,7 @@ async fn accept_invites(
                 // already existing, skipping
                 continue;
             }
-            pending.push((*room_id).to_owned());
+            pending.push(*room_id);
             continue;
         };
         info!(
@@ -308,7 +300,7 @@ async fn accept_invites(
 
 async fn send_invites(
     from_c: &Client,
-    rooms: &Vec<&OwnedRoomId>,
+    rooms: &[&OwnedRoomId],
     user_id: OwnedUserId,
 ) -> anyhow::Result<Vec<OwnedRoomId>> {
     Ok(join_all(rooms.iter().enumerate().map(|(counter, room_id)| {
