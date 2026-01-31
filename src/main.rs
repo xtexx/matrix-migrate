@@ -1,11 +1,7 @@
 use std::time::Duration;
 
 use clap::Parser;
-use futures::{
-    StreamExt,
-    future::{join_all, try_join_all},
-    pin_mut, try_join,
-};
+use futures::{StreamExt, pin_mut, try_join};
 use log::{error, info, warn};
 use matrix_sdk::{
     Client, RoomState,
@@ -179,7 +175,7 @@ async fn main() -> anyhow::Result<()> {
     if args.leave_rooms {
         for room_id in &already_invited {
             info!("Leaving {room_id}");
-            to_c.get_room(&room_id).unwrap().leave().await?;
+            from_c.get_room(&room_id).unwrap().leave().await?;
         }
     }
 
@@ -196,8 +192,10 @@ async fn main() -> anyhow::Result<()> {
     let mut all_failed_invites: Vec<OwnedRoomId> = vec![];
 
     for to_invite_chunk in to_invite.chunks(5) {
+        info!("Sending invitation chunk");
         let failed_invites =
             send_invites(&inviter_c, &c_accept, to_invite_chunk, to_user.clone()).await?;
+        info!("Invitation chunk sent");
 
         let (mut invites_awaiting, failed_invites) = (
             to_invite_chunk
@@ -213,6 +211,7 @@ async fn main() -> anyhow::Result<()> {
             info!("Still {} rooms to go. Syncing up", invites_awaiting.len());
             to_sync_stream.next().await.expect("Sync stream broke")?;
             invites_awaiting = accept_invites(&to_c, &invites_awaiting.clone()).await?;
+            break;
         }
 
         ensure_power_levels(&inviter_c, to_user.clone(), to_invite_chunk).await?;
@@ -223,6 +222,15 @@ async fn main() -> anyhow::Result<()> {
             "Failed to invite to {:?}. See logs above for the reasons why",
             all_failed_invites
         );
+        for inv in &all_failed_invites {
+            let Some(room) = from_c.get_room(inv) else {
+                continue;
+            };
+            if let Some(canonical_alias) = room.canonical_alias() {
+                let disp_name = room.display_name().await.unwrap();
+                warn!("Try: {canonical_alias} ({disp_name})");
+            }
+        }
     }
 
     to_c.logout().await?;
@@ -238,53 +246,48 @@ async fn ensure_power_levels(
     new_username: OwnedUserId,
     rooms: &[&OwnedRoomId],
 ) -> anyhow::Result<()> {
-    try_join_all(rooms.iter().map(|room_id| {
-        let from_c = from_c.clone();
+    for room_id in rooms {
         let self_id = from_c.user_id().unwrap().to_owned();
         let user_id = new_username.clone();
-        async move {
-            let Some(joined) = from_c.get_room(room_id) else {
-                return anyhow::Ok(());
-            };
 
-            let Some(me) = joined.get_member(&self_id).await? else {
-                warn!("{self_id} isn't member of {room_id}. Skipping power_level ensuring.");
-                return anyhow::Ok(());
-            };
+        let Some(joined) = from_c.get_room(room_id) else {
+            return anyhow::Ok(());
+        };
 
-            let Some(new_acc) = joined.get_member(&user_id).await? else {
-                warn!("{user_id} isn't member of {room_id}. Skipping power_level ensuring.");
-                return anyhow::Ok(());
-            };
+        let Some(me) = joined.get_member(&self_id).await? else {
+            warn!("{self_id} isn't member of {room_id}. Skipping power_level ensuring.");
+            return anyhow::Ok(());
+        };
 
-            let my_power_level = me.power_level();
+        let Some(new_acc) = joined.get_member(&user_id).await? else {
+            warn!("{user_id} isn't member of {room_id}. Skipping power_level ensuring.");
+            return anyhow::Ok(());
+        };
 
-            if my_power_level <= new_acc.power_level() {
-                info!("Power levels of {user_id} and {self_id} in {room_id} are fine.");
-                return anyhow::Ok(());
-            }
+        let my_power_level = me.power_level();
 
-            info!("Trying to adjust power_level of {user_id} in {room_id} to {my_power_level:?}.");
-
-            match my_power_level {
-                UserPowerLevel::Infinite => {
-                    warn!("Couldn't update power levels for {user_id} in {room_id} to infinity");
-                }
-                UserPowerLevel::Int(my_power_level) => {
-                    if let Err(e) = joined
-                        .update_power_levels(vec![(&user_id.clone(), my_power_level)])
-                        .await
-                    {
-                        warn!("Couldn't update power levels for {user_id} in {room_id}: {e}");
-                    }
-                }
-                _ => error!("Unknown power level"),
-            }
-
-            Ok(())
+        if my_power_level <= new_acc.power_level() {
+            info!("Power levels of {user_id} and {self_id} in {room_id} are fine.");
+            return anyhow::Ok(());
         }
-    }))
-    .await?;
+
+        info!("Trying to adjust power_level of {user_id} in {room_id} to {my_power_level:?}.");
+
+        match my_power_level {
+            UserPowerLevel::Infinite => {
+                warn!("Couldn't update power levels for {user_id} in {room_id} to infinity");
+            }
+            UserPowerLevel::Int(my_power_level) => {
+                if let Err(e) = joined
+                    .update_power_levels(vec![(&user_id.clone(), my_power_level)])
+                    .await
+                {
+                    warn!("Couldn't update power levels for {user_id} in {room_id}: {e}");
+                }
+            }
+            _ => error!("Unknown power level"),
+        }
+    }
     Ok(())
 }
 
@@ -318,46 +321,66 @@ async fn send_invites(
     rooms: &[&OwnedRoomId],
     user_id: OwnedUserId,
 ) -> anyhow::Result<Vec<OwnedRoomId>> {
-    Ok(join_all(rooms.iter().enumerate().map(|(counter, room_id)| {
-        let from_c = from_c.clone();
-        let user_id = user_id.clone();
-        async move {
-            tokio::time::sleep(Duration::from_secs(counter.saturating_div(2) as u64)).await;
-            let Some(joined) = from_c.get_room(room_id) else {
-                warn!("Can't invite user to {:}: not a member myself", room_id);
-                return Some((*room_id).to_owned());
-            };
-            let disp_name = joined.display_name().await.unwrap();
-            let disp_name_str = disp_name.to_string().to_lowercase();
-            if disp_name_str.contains("deprecated")
-                || disp_name_str.contains("old")
-                || disp_name_str.contains("upgraded")
-                || disp_name_str.contains("moved")
-            {
-                info!("Skipping inviting to {room_id} ({disp_name})");
-                return None;
-            }
-            info!("Inviting to {room_id} ({disp_name})");
-            if let Err(e) = joined.invite_user_by_id(&user_id).await {
-                warn!("Inviting to {:} failed: {e}", room_id);
-                if let Some(canonical_alias) = joined.canonical_alias() {
-                    if let Err(e) = to_c
-                        .join_room_by_id_or_alias((&*canonical_alias).into(), &[])
-                        .await
-                    {
-                        warn!("Joining {canonical_alias} failed: {e}");
-                    } else {
-                        info!("Joined {canonical_alias} ({disp_name})");
-                        return None;
-                    }
-                }
-                return Some((*room_id).to_owned());
-            }
-            None
+    let mut failed_rooms: Vec<OwnedRoomId> = Vec::new();
+    for room_id in rooms {
+        let Some(joined) = from_c.get_room(room_id) else {
+            warn!("Can't invite user to {:}: not a member myself", room_id);
+            failed_rooms.push((*room_id).to_owned());
+            continue;
+        };
+        let disp_name = joined.display_name().await.unwrap();
+        let disp_name_str = disp_name.to_string().to_lowercase();
+        if disp_name_str.contains("deprecated")
+            || disp_name_str.contains("old")
+            || disp_name_str.contains("upgraded")
+            || disp_name_str.contains("moved")
+        {
+            info!("Skipping inviting to {room_id} ({disp_name})");
+            failed_rooms.push((*room_id).to_owned());
+            continue;
         }
-    }))
-    .await
-    .into_iter()
-    .flatten()
-    .collect())
+        if joined.is_direct().await.ok() == Some(true) {
+            info!("Skipping PM room {room_id} ({disp_name})");
+            failed_rooms.push((*room_id).to_owned());
+            continue;
+        }
+        let upl = match joined
+            .get_user_power_level(&from_c.user_id().unwrap())
+            .await
+        {
+            Ok(s) => Some(s),
+            Err(err) => {
+                warn!("Can't get user power level in {:}: {:?}", room_id, err);
+                None
+            }
+        };
+        if let Some(upl) = upl
+            && let Ok(rpl) = joined.power_levels().await
+        {
+            if upl < rpl.invite {
+                warn!("Skipping inviting to {room_id} ({disp_name}): no permission");
+                if let Some(canonical_alias) = joined.canonical_alias() {
+                    warn!("Try: {canonical_alias}");
+                    // info!("Joining with canonical alias: {canonical_alias}");
+                    // if let Err(e) = to_c
+                    //     .join_room_by_id_or_alias((&*canonical_alias).into(), &[])
+                    //     .await
+                    // {
+                    //     warn!("Joining {canonical_alias} failed: {e}");
+                    // } else {
+                    //     info!("Joined {canonical_alias} ({disp_name})");
+                    // }
+                }
+                failed_rooms.push((*room_id).to_owned());
+                continue;
+            }
+        }
+        info!("Inviting to {room_id} ({disp_name})");
+        if let Err(e) = joined.invite_user_by_id(&user_id).await {
+            warn!("Inviting to {:} failed: {e}", room_id);
+            failed_rooms.push((*room_id).to_owned());
+            continue;
+        }
+    }
+    Ok(failed_rooms)
 }
